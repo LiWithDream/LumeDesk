@@ -302,6 +302,9 @@ namespace LumeDesk
         private TextBlock _clockDateShadow;
 
         private bool _isPreviewMode;
+        private bool _allowExit;
+        private bool _isClosed;
+        private DispatcherTimer _reAnchorSettleTimer;
         private double _canvasW = 1080;
         private double _canvasH = 1872;
         private int _currentPage = 0;
@@ -330,6 +333,32 @@ namespace LumeDesk
         private static readonly Dictionary<string, DropShadowEffect> ShadowEffectCache = new Dictionary<string, DropShadowEffect>();
 
         public event Action RequestExit;
+        public event Action ShellRestarted;
+
+        public void AllowExit()
+        {
+            _allowExit = true;
+            DesktopAttachment.AllowWindowClose = true;
+        }
+
+        public void EnsureVisibleAndAttached()
+        {
+            if (_isClosed) return;
+            try
+            {
+                if (!IsVisible) Show();
+                if (WindowState != WindowState.Normal) WindowState = WindowState.Normal;
+                IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd != IntPtr.Zero)
+                {
+                    DesktopAttachment.ReAttachDesktopOwner(hwnd);
+                }
+                ReAnchorToMonitor();
+            }
+            catch
+            {
+            }
+        }
 
         public MainWindow(AppConfig config, bool isPreviewMode)
         {
@@ -434,6 +463,7 @@ namespace LumeDesk
             {
                 SourceInitialized += OnWindowSourceInitialized;
                 Loaded += OnWindowLoaded;
+                Closing += OnWindowClosing;
                 Closed += OnWindowClosed;
                 SystemEvents.DisplaySettingsChanged += OnSystemDisplaySettingsChanged;
                 SystemEvents.UserPreferenceChanged += OnSystemUserPreferenceChanged;
@@ -799,7 +829,15 @@ namespace LumeDesk
         private void OnWindowSourceInitialized(object sender, EventArgs e)
         {
             _monitor = MonitorHelper.PickTargetMonitor(_config.TargetMonitor);
-            DesktopAttachment.AttachWindow(this, _monitor, delegate { ReAnchorToMonitor(); });
+            DesktopAttachment.AttachWindow(
+                this,
+                _monitor,
+                delegate { ReAnchorToMonitor(); },
+                delegate
+                {
+                    ReAnchorToMonitor();
+                    if (ShellRestarted != null) ShellRestarted();
+                });
         }
 
         private void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -816,11 +854,25 @@ namespace LumeDesk
             GC.WaitForPendingFinalizers();
         }
 
+        private void OnWindowClosing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            // Protect desktop shell window from accidental Alt+F4 / WM_CLOSE unless explicitly exiting or OS shutting down
+            if (!_allowExit && !_isPreviewMode && !DesktopAttachment.AllowWindowClose)
+            {
+                e.Cancel = true;
+                if (_searchOverlayActive) CloseSearchOverlay(true);
+                if (_modalOverlayActive) CloseFolderModal(true);
+                return;
+            }
+        }
+
         private void OnWindowClosed(object sender, EventArgs e)
         {
+            _isClosed = true;
             try { SystemEvents.DisplaySettingsChanged -= OnSystemDisplaySettingsChanged; } catch { }
             try { SystemEvents.UserPreferenceChanged -= OnSystemUserPreferenceChanged; } catch { }
             DisposeWatchers();
+            if (_reAnchorSettleTimer != null) _reAnchorSettleTimer.Stop();
             _clockTimer.Stop();
             if (_widgetTimer != null) _widgetTimer.Stop();
             StopModalDragAutoScroll();
@@ -1192,8 +1244,14 @@ namespace LumeDesk
 
         public void ReAnchorToMonitor()
         {
-            _monitor = MonitorHelper.PickTargetMonitor(_config.TargetMonitor);
-            if (_monitor == null) return;
+            if (_isClosed) return;
+            MonitorInfoItem picked = MonitorHelper.PickTargetMonitor(_config.TargetMonitor);
+            if (picked == null || picked.BoundsWidth < 100 || picked.BoundsHeight < 100 ||
+                picked.WorkWidth < 100 || picked.WorkHeight < 100)
+            {
+                return;
+            }
+            _monitor = picked;
 
             IntPtr hwnd = new WindowInteropHelper(this).Handle;
             if (hwnd != IntPtr.Zero)
@@ -1234,43 +1292,48 @@ namespace LumeDesk
             }
             InvalidateSearchOverlay(true);
 
-            // Post-DPI settle verification pass (guarantees exact edge-to-edge coverage after WM_DPICHANGED completes)
-            DispatcherTimer settle = new DispatcherTimer();
-            settle.Interval = TimeSpan.FromMilliseconds(180);
-            settle.Tick += delegate
+            // Post-DPI settle verification pass (reuses one debounced timer across rapid display/sleep bursts)
+            if (_reAnchorSettleTimer == null)
             {
-                settle.Stop();
-                IntPtr h2 = new WindowInteropHelper(this).Handle;
-                if (h2 != IntPtr.Zero && _monitor != null)
+                _reAnchorSettleTimer = new DispatcherTimer();
+                _reAnchorSettleTimer.Interval = TimeSpan.FromMilliseconds(180);
+                _reAnchorSettleTimer.Tick += delegate
                 {
-                    DesktopAttachment.PositionOnMonitor(h2, _monitor);
-                    PresentationSource ps2 = PresentationSource.FromVisual(this);
-                    if (ps2 != null && ps2.CompositionTarget != null)
+                    _reAnchorSettleTimer.Stop();
+                    if (_isClosed) return;
+                    IntPtr h2 = new WindowInteropHelper(this).Handle;
+                    if (h2 != IntPtr.Zero && _monitor != null && _monitor.WorkWidth >= 100 && _monitor.WorkHeight >= 100)
                     {
-                        Matrix m2 = ps2.CompositionTarget.TransformFromDevice;
-                        double w2 = Math.Round(_monitor.WorkWidth * m2.M11);
-                        double hDip2 = Math.Round(_monitor.WorkHeight * m2.M22);
-                        if (w2 > 100 && hDip2 > 100 &&
-                            (Math.Abs(Width - w2) > 1.0 || Math.Abs(Height - hDip2) > 1.0 ||
-                             Math.Abs(_canvasW - w2) > 1.0 || Math.Abs(_canvasH - hDip2) > 1.0))
+                        DesktopAttachment.PositionOnMonitor(h2, _monitor);
+                        PresentationSource ps2 = PresentationSource.FromVisual(this);
+                        if (ps2 != null && ps2.CompositionTarget != null)
                         {
-                            Width = w2;
-                            Height = hDip2;
-                            _canvasW = w2;
-                            _canvasH = hDip2;
-                            _folderModalsDirty = true;
-                            DesktopAttachment.PositionOnMonitor(h2, _monitor);
-                            RenderDesktop();
-                            if (_openFolder != null && _modalOverlayActive)
+                            Matrix m2 = ps2.CompositionTarget.TransformFromDevice;
+                            double w2 = Math.Round(_monitor.WorkWidth * m2.M11);
+                            double hDip2 = Math.Round(_monitor.WorkHeight * m2.M22);
+                            if (w2 > 100 && hDip2 > 100 &&
+                                (Math.Abs(Width - w2) > 1.0 || Math.Abs(Height - hDip2) > 1.0 ||
+                                 Math.Abs(_canvasW - w2) > 1.0 || Math.Abs(_canvasH - hDip2) > 1.0))
                             {
-                                OpenFolderModal(_openFolder);
+                                Width = w2;
+                                Height = hDip2;
+                                _canvasW = w2;
+                                _canvasH = hDip2;
+                                _folderModalsDirty = true;
+                                DesktopAttachment.PositionOnMonitor(h2, _monitor);
+                                RenderDesktop();
+                                if (_openFolder != null && _modalOverlayActive)
+                                {
+                                    OpenFolderModal(_openFolder);
+                                }
+                                InvalidateSearchOverlay(true);
                             }
-                            InvalidateSearchOverlay(true);
                         }
                     }
-                }
-            };
-            settle.Start();
+                };
+            }
+            _reAnchorSettleTimer.Stop();
+            _reAnchorSettleTimer.Start();
         }
 
         public void SwitchMonitor(string deviceName)
@@ -6679,6 +6742,7 @@ namespace LumeDesk
             cm.Items.Add(CreateSeparator());
             cm.Items.Add(CreateMenuItem("退出 LumeDesk", delegate
             {
+                AllowExit();
                 if (RequestExit != null) RequestExit();
                 else Close();
             }));

@@ -2,19 +2,31 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using WinForms = System.Windows.Forms;
 
 namespace LumeDesk
 {
     public class App : Application
     {
+        private const string SingleInstanceMutexName = "LumeDesk_SingleInstance_Mutex_v1";
+        private const string WakeEventName = "LumeDesk_Wake_Event_v1";
         private static Mutex _instanceMutex;
+        private static readonly object LogLock = new object();
         private MainWindow _mainWindow;
         private WinForms.NotifyIcon _trayIcon;
         private AppConfig _config;
+        private EventWaitHandle _wakeEvent;
+        private Thread _wakeThread;
+        private volatile bool _shuttingDown;
+        private DateTime _uiFaultWindowStart = DateTime.MinValue;
+        private int _uiFaultBurstCount = 0;
 
         [STAThread]
         public static void Main(string[] args)
@@ -61,18 +73,34 @@ namespace LumeDesk
             }
 
             bool createdNew;
-            _instanceMutex = new Mutex(true, "LumeDesk_SingleInstance_Mutex_v1", out createdNew);
+            _instanceMutex = new Mutex(true, SingleInstanceMutexName, out createdNew);
             if (!createdNew)
             {
+                // Signal already-running instance to verify/re-anchor desktop visibility instead of failing silently
+                try
+                {
+                    using (EventWaitHandle wake = EventWaitHandle.OpenExisting(WakeEventName))
+                    {
+                        wake.Set();
+                    }
+                }
+                catch
+                {
+                }
                 return;
             }
 
             try
             {
                 App app = new App();
+                app.InstallCrashGuards();
                 app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
                 app.StartInteractive();
                 app.Run();
+            }
+            catch (Exception ex)
+            {
+                LogCrash("App.Main fatal", ex);
             }
             finally
             {
@@ -81,13 +109,132 @@ namespace LumeDesk
             }
         }
 
+        private void InstallCrashGuards()
+        {
+            DispatcherUnhandledException += delegate(object sender, DispatcherUnhandledExceptionEventArgs e)
+            {
+                LogCrash("DispatcherUnhandledException", e.Exception);
+                DateTime now = DateTime.UtcNow;
+                if ((now - _uiFaultWindowStart).TotalSeconds > 3.0)
+                {
+                    _uiFaultWindowStart = now;
+                    _uiFaultBurstCount = 1;
+                }
+                else
+                {
+                    _uiFaultBurstCount++;
+                }
+                if (_uiFaultBurstCount <= 5)
+                {
+                    e.Handled = true;
+                }
+            };
+
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+            {
+                LogCrash("AppDomain.UnhandledException", e.ExceptionObject as Exception);
+            };
+
+            TaskScheduler.UnobservedTaskException += delegate(object sender, UnobservedTaskExceptionEventArgs e)
+            {
+                LogCrash("TaskScheduler.UnobservedTaskException", e.Exception);
+                e.SetObserved();
+            };
+
+            SessionEnding += delegate
+            {
+                if (_mainWindow != null) _mainWindow.AllowExit();
+            };
+        }
+
+        internal static void LogCrash(string context, Exception ex)
+        {
+            try
+            {
+                lock (LogLock)
+                {
+                    string logDir = Path.Combine(ConfigManager.BaseDir, "logs");
+                    if (!Directory.Exists(logDir)) Directory.CreateDirectory(logDir);
+                    string logPath = Path.Combine(logDir, "crash.log");
+                    if (File.Exists(logPath) && new FileInfo(logPath).Length > 512 * 1024)
+                    {
+                        string oldPath = Path.Combine(logDir, "crash.old.log");
+                        if (File.Exists(oldPath)) File.Delete(oldPath);
+                        File.Move(logPath, oldPath);
+                    }
+                    string entry = string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] [{1}] {2}{3}",
+                        DateTime.Now, context, ex != null ? ex.ToString() : "(null)", Environment.NewLine + Environment.NewLine);
+                    File.AppendAllText(logPath, entry, Encoding.UTF8);
+                }
+            }
+            catch
+            {
+            }
+        }
+
         private void StartInteractive()
         {
             _config = ConfigManager.Load();
             _mainWindow = new MainWindow(_config, false);
             _mainWindow.RequestExit += ShutdownApp;
+            _mainWindow.ShellRestarted += delegate
+            {
+                RefreshTrayIconVisibility();
+            };
             SetupTrayIcon();
+            StartWakeListener();
             _mainWindow.Show();
+        }
+
+        private void StartWakeListener()
+        {
+            try
+            {
+                bool ignored;
+                _wakeEvent = new EventWaitHandle(false, EventResetMode.AutoReset, WakeEventName, out ignored);
+                _wakeThread = new Thread(delegate()
+                {
+                    while (!_shuttingDown)
+                    {
+                        try
+                        {
+                            if (_wakeEvent == null || !_wakeEvent.WaitOne()) continue;
+                            if (_shuttingDown) break;
+                            Dispatcher.BeginInvoke((Action)delegate
+                            {
+                                if (!_shuttingDown && _mainWindow != null)
+                                {
+                                    _mainWindow.EnsureVisibleAndAttached();
+                                    RefreshTrayIconVisibility();
+                                }
+                            });
+                        }
+                        catch
+                        {
+                            if (_shuttingDown) break;
+                            Thread.Sleep(500);
+                        }
+                    }
+                });
+                _wakeThread.IsBackground = true;
+                _wakeThread.Start();
+            }
+            catch
+            {
+            }
+        }
+
+        private void RefreshTrayIconVisibility()
+        {
+            if (_trayIcon == null) return;
+            try
+            {
+                _trayIcon.Visible = false;
+                _trayIcon.Visible = true;
+            }
+            catch
+            {
+            }
         }
 
         private void SetupTrayIcon()
@@ -338,6 +485,13 @@ namespace LumeDesk
 
         private void ShutdownApp()
         {
+            _shuttingDown = true;
+            if (_wakeEvent != null)
+            {
+                try { _wakeEvent.Set(); } catch { }
+                try { _wakeEvent.Dispose(); } catch { }
+                _wakeEvent = null;
+            }
             if (_trayIcon != null)
             {
                 try { _trayIcon.Visible = false; _trayIcon.Dispose(); } catch { }
@@ -345,7 +499,12 @@ namespace LumeDesk
             }
             if (_mainWindow != null)
             {
-                try { _mainWindow.Close(); } catch { }
+                try
+                {
+                    _mainWindow.AllowExit();
+                    _mainWindow.Close();
+                }
+                catch { }
                 _mainWindow = null;
             }
             Shutdown();

@@ -188,26 +188,57 @@ namespace LumeDesk
             }
         }
 
+        private sealed class WinRtWaitGuard
+        {
+            public readonly ManualResetEventSlim Event = new ManualResetEventSlim(false);
+            private int _refs = 2;
+
+            public void SignalAndRelease()
+            {
+                try { Event.Set(); } catch { }
+                Release();
+            }
+
+            public void Release()
+            {
+                if (Interlocked.Decrement(ref _refs) == 0)
+                {
+                    try { Event.Dispose(); } catch { }
+                }
+            }
+        }
+
         private static T WaitWinRt<T>(IAsyncOperation<T> op)
         {
             if (op == null) return default(T);
-            if (op.Status == AsyncStatus.Started)
+            try
             {
-                using (ManualResetEventSlim mre = new ManualResetEventSlim(false))
+                if (op.Status == AsyncStatus.Started)
                 {
-                    op.Completed = delegate(IAsyncOperation<T> info, AsyncStatus st)
+                    WinRtWaitGuard guard = new WinRtWaitGuard();
+                    try
                     {
-                        mre.Set();
-                    };
-                    if (op.Status == AsyncStatus.Started)
+                        op.Completed = delegate(IAsyncOperation<T> info, AsyncStatus st)
+                        {
+                            guard.SignalAndRelease();
+                        };
+                        if (op.Status == AsyncStatus.Started)
+                        {
+                            guard.Event.Wait(3500);
+                        }
+                    }
+                    finally
                     {
-                        mre.Wait(3500);
+                        guard.Release();
                     }
                 }
+                if (op.Status == AsyncStatus.Completed)
+                {
+                    return op.GetResults();
+                }
             }
-            if (op.Status == AsyncStatus.Completed)
+            catch
             {
-                return op.GetResults();
             }
             return default(T);
         }
@@ -215,23 +246,34 @@ namespace LumeDesk
         private static uint WaitWinRtLoad(DataReaderLoadOperation op)
         {
             if (op == null) return 0;
-            if (op.Status == AsyncStatus.Started)
+            try
             {
-                using (ManualResetEventSlim mre = new ManualResetEventSlim(false))
+                if (op.Status == AsyncStatus.Started)
                 {
-                    op.Completed = delegate(IAsyncOperation<uint> info, AsyncStatus st)
+                    WinRtWaitGuard guard = new WinRtWaitGuard();
+                    try
                     {
-                        mre.Set();
-                    };
-                    if (op.Status == AsyncStatus.Started)
+                        op.Completed = delegate(IAsyncOperation<uint> info, AsyncStatus st)
+                        {
+                            guard.SignalAndRelease();
+                        };
+                        if (op.Status == AsyncStatus.Started)
+                        {
+                            guard.Event.Wait(3500);
+                        }
+                    }
+                    finally
                     {
-                        mre.Wait(3500);
+                        guard.Release();
                     }
                 }
+                if (op.Status == AsyncStatus.Completed)
+                {
+                    return op.GetResults();
+                }
             }
-            if (op.Status == AsyncStatus.Completed)
+            catch
             {
-                return op.GetResults();
             }
             return 0;
         }

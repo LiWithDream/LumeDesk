@@ -20,9 +20,12 @@ namespace LumeDesk
         private const int WM_DISPLAYCHANGE = 0x007E;
         private const int WM_DPICHANGED = 0x02E0;
         private const int WM_COMMAND = 0x0111;
+        private const int WM_QUERYENDSESSION = 0x0011;
+        private const int WM_ENDSESSION = 0x0016;
 
         private const int SC_MINIMIZE = 0xF020;
         private const int SC_MAXIMIZE = 0xF030;
+        private const int SC_CLOSE = 0xF060;
 
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOMOVE = 0x0002;
@@ -33,6 +36,8 @@ namespace LumeDesk
         private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
         private static readonly IntPtr HWND_TOP = new IntPtr(0);
         public static bool AllowTemporaryFront = false;
+        public static bool AllowWindowClose = false;
+        private static readonly int WM_TASKBARCREATED = RegisterTaskbarCreatedMessage();
 
         [StructLayout(LayoutKind.Sequential)]
         private struct WINDOWPOS
@@ -77,6 +82,18 @@ namespace LumeDesk
 
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
         private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int RegisterWindowMessageW(string lpString);
+
+        private static int RegisterTaskbarCreatedMessage()
+        {
+            try { return RegisterWindowMessageW("TaskbarCreated"); }
+            catch { return 0; }
+        }
 
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
@@ -135,6 +152,11 @@ namespace LumeDesk
 
         public static void AttachWindow(Window window, MonitorInfoItem monitor, Action onDisplayChanged)
         {
+            AttachWindow(window, monitor, onDisplayChanged, null);
+        }
+
+        public static void AttachWindow(Window window, MonitorInfoItem monitor, Action onDisplayChanged, Action onShellRestarted)
+        {
             IntPtr hwnd = new WindowInteropHelper(window).Handle;
             if (hwnd == IntPtr.Zero) return;
 
@@ -160,11 +182,7 @@ namespace LumeDesk
             }
 
             // Set desktop host as Owner (survives Win+D while remaining interactive & transparent)
-            IntPtr desktopHost = FindDesktopHostWindow();
-            if (desktopHost != IntPtr.Zero)
-            {
-                SetWindowLongPtr(hwnd, GWLP_HWNDPARENT, desktopHost);
-            }
+            ReAttachDesktopOwner(hwnd);
 
             PositionOnMonitor(hwnd, monitor);
 
@@ -188,9 +206,16 @@ namespace LumeDesk
                     else if (msg == WM_SYSCOMMAND)
                     {
                         int cmd = wParam.ToInt32() & 0xFFF0;
-                        if (cmd == SC_MINIMIZE || cmd == SC_MAXIMIZE)
+                        if (cmd == SC_MINIMIZE || cmd == SC_MAXIMIZE || (!AllowWindowClose && cmd == SC_CLOSE))
                         {
                             handled = true;
+                        }
+                    }
+                    else if (msg == WM_QUERYENDSESSION || msg == WM_ENDSESSION)
+                    {
+                        if (msg == WM_QUERYENDSESSION || wParam != IntPtr.Zero)
+                        {
+                            AllowWindowClose = true;
                         }
                     }
                     else if (msg == WM_DISPLAYCHANGE || msg == WM_DPICHANGED)
@@ -200,8 +225,32 @@ namespace LumeDesk
                             window.Dispatcher.BeginInvoke(onDisplayChanged);
                         }
                     }
+                    else if (WM_TASKBARCREATED != 0 && msg == WM_TASKBARCREATED)
+                    {
+                        ReAttachDesktopOwner(h);
+                        if (onShellRestarted != null)
+                        {
+                            window.Dispatcher.BeginInvoke(onShellRestarted);
+                        }
+                    }
                     return IntPtr.Zero;
                 });
+            }
+        }
+
+        public static void ReAttachDesktopOwner(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            try
+            {
+                IntPtr desktopHost = FindDesktopHostWindow();
+                if (desktopHost != IntPtr.Zero && IsWindow(desktopHost))
+                {
+                    SetWindowLongPtr(hwnd, GWLP_HWNDPARENT, desktopHost);
+                }
+            }
+            catch
+            {
             }
         }
 

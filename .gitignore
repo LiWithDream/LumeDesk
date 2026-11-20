@@ -12,6 +12,7 @@ dist/
 *.pdb
 
 # Local previews, logs & temporary files (keep docs/images showcase assets!)
+logs/
 *.png
 *.jpg
 !docs/images/*.png
