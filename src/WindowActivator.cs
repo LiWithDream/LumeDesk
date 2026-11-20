@@ -135,6 +135,16 @@ namespace LumeDesk
             return TryActivateProcessWindow(targetExe, exeName, displayName);
         }
 
+        public static bool TryActivateProcessByName(string exeName, string displayName)
+        {
+            if (string.IsNullOrEmpty(exeName)) return false;
+            string stem = exeName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileNameWithoutExtension(exeName)
+                : exeName;
+            if (string.IsNullOrEmpty(stem)) return false;
+            return TryActivateProcessWindow("", stem, displayName ?? "");
+        }
+
         private static bool ResolveShortcut(string lnkPath, out string targetPath, out string arguments)
         {
             targetPath = "";
@@ -167,7 +177,10 @@ namespace LumeDesk
         {
             HashSet<uint> pids = new HashSet<uint>();
             string normalizedTarget = "";
-            try { normalizedTarget = Path.GetFullPath(targetExePath); } catch { normalizedTarget = targetExePath; }
+            if (!string.IsNullOrEmpty(targetExePath))
+            {
+                try { normalizedTarget = Path.GetFullPath(targetExePath); } catch { normalizedTarget = targetExePath; }
+            }
 
             Process[] procs = null;
             try { procs = Process.GetProcessesByName(exeName); } catch { return false; }

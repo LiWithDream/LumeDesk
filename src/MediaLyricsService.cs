@@ -28,6 +28,7 @@ namespace LumeDesk
         public string Title { get; set; }
         public string Artist { get; set; }
         public string SourceApp { get; set; }
+        public string SourceAppId { get; set; }
         public double PositionSeconds { get; set; }
         public double DurationSeconds { get; set; }
         public BitmapSource CoverArt { get; set; }
@@ -42,6 +43,7 @@ namespace LumeDesk
             Title = "暂无播放中的媒体";
             Artist = "网易云 · Spotify · Apple Music";
             SourceApp = "";
+            SourceAppId = "";
             PrevLyric = "";
             CurrentLyric = "";
             NextLyric = "";
@@ -168,6 +170,7 @@ namespace LumeDesk
                     Title = _state.Title,
                     Artist = _state.Artist,
                     SourceApp = _state.SourceApp,
+                    SourceAppId = _state.SourceAppId,
                     PositionSeconds = livePos,
                     DurationSeconds = _state.DurationSeconds,
                     CoverArt = _cachedCover,
@@ -427,6 +430,7 @@ namespace LumeDesk
                     _state.Title = "暂无播放中的媒体";
                     _state.Artist = "网易云 · Spotify · Apple Music";
                     _state.SourceApp = "";
+                    _state.SourceAppId = "";
                     _state.DurationSeconds = 0;
                     _state.LyricStatus = "";
                     _cachedCover = null;
@@ -440,7 +444,8 @@ namespace LumeDesk
 
             string title = "";
             string artist = "";
-            string sourceApp = PrettifyAppId(session.SourceAppUserModelId);
+            string rawAppId = session.SourceAppUserModelId ?? "";
+            string sourceApp = PrettifyAppId(rawAppId);
             bool isPlaying = false;
             double posSec = 0;
             double durSec = 0;
@@ -517,6 +522,7 @@ namespace LumeDesk
                 _state.Title = title;
                 _state.Artist = string.IsNullOrEmpty(artist) ? sourceApp : artist;
                 _state.SourceApp = sourceApp;
+                _state.SourceAppId = rawAppId;
                 _state.DurationSeconds = durSec;
                 _anchorPosSec = posSec;
                 _anchorUtc = DateTime.UtcNow;
@@ -595,6 +601,7 @@ namespace LumeDesk
                 _state.Title = title;
                 _state.Artist = string.IsNullOrEmpty(artist) ? "网易云音乐" : artist;
                 _state.SourceApp = "网易云音乐";
+                _state.SourceAppId = "cloudmusic.exe";
                 _state.DurationSeconds = durSec;
 
                 if (trackChanged || rawChanged)

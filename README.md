@@ -2,9 +2,9 @@
 
 # LumeDesk
 
-**横竖屏自适应 · 零依赖 · 4K / 160Hz 原生磨砂大文件夹与桌面小部件启动台**
+**横竖屏自适应 · 零依赖 · 原生高刷磨砂大文件夹与桌面小部件启动台**
 
-*An ultra-lightweight (~330 KB), zero-dependency frosted-glass desktop launcher & live widget deck for Windows 10 / 11 — automatically adapting to Landscape, Portrait, 1080p, 2K, 4K & mixed-DPI displays.*
+*An ultra-lightweight (~330 KB), zero-dependency frosted-glass desktop launcher & live widget deck for Windows 10 / 11 — automatically adapting to Landscape, Portrait, high-DPI & multi-monitor displays.*
 
 [![Release](https://img.shields.io/github/v/release/LiWithDream/LumeDesk?color=3b82f6)](https://github.com/LiWithDream/LumeDesk/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011%20(x64)-0ea5e9)](#快速开始)
@@ -13,7 +13,7 @@
 
 <br />
 
-![LumeDesk 4K Landscape Preview](docs/images/preview-landscape.jpg)
+![LumeDesk Landscape Preview](docs/images/preview-landscape.jpg)
 
 </div>
 
@@ -23,12 +23,12 @@
 
 ### 1. 横竖屏与多分辨率原生自适应
 - **横屏 / 竖屏自动切换**：根据目标屏幕宽高比自动在 **横屏双栏工作台**（左侧大文件夹网格 + 右侧 2×2 小部件区 + 底部毛玻璃 Dock 胶囊）与 **竖屏手机式主页**（顶部文件夹 + 中部小部件 + 底部胶囊 Dock）之间无缝切换。
-- **全分辨率 & Per-Monitor DPI v2**：内置 `PerMonitorV2` 清单与混合 DPI 适配，从 1080p 笔记本、2K/4K 横屏、带鱼屏到 4K 竖屏副屏均可自适应缩放，并监听系统分辨率/缩放变更与旋转热重排。
+- **全分辨率 & Per-Monitor DPI v2**：内置 `PerMonitorV2` 清单与混合 DPI 适配，从普通笔记本、标准宽屏、带鱼屏、高分屏到竖屏副屏均可自适应缩放，并监听系统分辨率/缩放变更与旋转热重排。
 - **智能大文件夹宫格与分页**：单夹 `≤ 7` 项展示经典 **2×2 四宫格**（3 大图标直达 + 右下角 2×2 子格），超过 7 项自动切换 **3×3 九宫格**，超出单页自动平滑分页（滚轮 / 方向键 / 页面指示点），也可右键自定义网格密度与单卡形态。
 
-### 2. 解析式超椭圆图标抗锯齿 & 160Hz 丝滑 GPU 动效
+### 2. 解析式超椭圆图标抗锯齿 & 原生高刷 GPU 动效
 - **告别图标锯齿毛刺**：在 **512×512** 超采样画布上以梯度归一化解析超椭圆 SDF（`|u|^4.6 + |v|^4.6 = 1`）直接输出原生 GPU 预乘 **`Pbgra32`**，配合边界色外延（自动消除自带圆角/柔边图标的双重弧边）与 WPF **`BitmapScalingMode.Fant`** 区域平均重采样，即使缩小至 2×2 迷你缩略格也丝滑锐利。
-- **高刷 GPU 硬件加速**：采用 Direct3D SwapChain 原生渲染（零 `UpdateLayeredWindow` 回读开销），自动读取显示器原生刷新率（支持 60Hz–240Hz），全量冻结阴影特效，带来丝滑的 Dock 连续波形放大、弹窗展开与惯性滚动。
+- **高刷 GPU 硬件加速**：采用 Direct3D SwapChain 原生渲染（零 `UpdateLayeredWindow` 回读开销），自动适配当前显示器的原生刷新率，全量冻结阴影特效，带来丝滑的 Dock 连续波形放大、弹窗展开与惯性滚动。
 
 ### 3. 直接拖拽排序 & 拼音模糊搜索
 - **所见即所得拖拽排序**：在桌面大文件夹卡片、展开弹窗内均可直接用鼠标拖动图标即时调整顺序（支持滚屏边缘自动滚动），也可拖拽分类标题重排大文件夹顺序；支持直接将外部 `.lnk` / `.exe` / `.url` 拖入分类。
@@ -38,7 +38,7 @@
 可在右键菜单或托盘独立开关每一张卡片：
 - **📬 邮箱收件箱**：同时支持 **Google OAuth 2.0（Gmail API 永久只读授权）** 与 **标准 IMAP SSL（QQ / 163 / Gmail）**，凭据经 Windows DPAPI 本机加密；实时展示未读徽章与最新邮件列表，点击直达对应会话。
 - **🌐 代理状态与实时网速**：原生对接 **Clash Verge Rev / Mihomo** Named Pipe（`\\.\pipe\verge-mihomo`），自动过滤订阅流量/到期等伪节点，支持一键切换 `规则 / 全局 / 直连` 与带延迟色标的可滚动节点切换弹窗（打开时自动将当前节点居中高亮），实时绘制双曲线网速与订阅余量；未运行代理时自动回退显示系统网卡实时网速。
-- **🎵 音乐控制与实时同步歌词**：零额外依赖原生接入 Windows **SMTC**（YouTube Music / Spotify / Chrome / Edge / Apple Music 等），并内置 **网易云音乐** 窗口与歌词回退支持，实时展示圆角专辑封面、高亮歌词胶囊与进度条。
+- **🎵 音乐控制与实时同步歌词**：零额外依赖原生接入 Windows **SMTC**（Apple Music / Spotify / YouTube Music / Chrome / Edge 等），并内置 **网易云音乐** 窗口与歌词回退支持，实时展示圆角专辑封面、高亮歌词胶囊与进度条；点击卡片智能唤起当前正在播放的播放器窗口。
 - **⚡ 系统监控与快捷待办**：实时监测 CPU / 内存 / C 盘余量，内置可勾选、一键清理已完成的轻量桌面待办。
 
 ### 5. 智能单实例唤起 & 零侵入文件管理
@@ -49,16 +49,16 @@
 
 ## 更多界面预览
 
-| 4K 竖屏主页 & 胶囊 Dock | Spotlight 拼音搜索 | Clash 节点切换弹窗 |
+| 竖屏主页 & 胶囊 Dock | Spotlight 拼音搜索 | Clash 节点切换弹窗 |
 | :---: | :---: | :---: |
-| <img src="docs/images/preview-portrait.jpg" width="240" alt="Portrait 4K" /> | <img src="docs/images/preview-search.jpg" width="380" alt="Spotlight Search" /> | <img src="docs/images/preview-clash-popup.jpg" width="380" alt="Clash Node Switcher" /> |
+| <img src="docs/images/preview-portrait.jpg" width="240" alt="Portrait View" /> | <img src="docs/images/preview-search.jpg" width="380" alt="Spotlight Search" /> | <img src="docs/images/preview-clash-popup.jpg" width="380" alt="Clash Node Switcher" /> |
 
 ---
 
 ## 快速开始
 
 ### 方式一：直接下载开箱即用（推荐）
-1. 前往 [**Releases 页面**](https://github.com/LiWithDream/LumeDesk/releases) 下载 `LumeDesk-v1.0.0-win-x64.zip` 并解压到本机固定目录（例如 `D:\LumeDesk`）。
+1. 前往 [**Releases 页面**](https://github.com/LiWithDream/LumeDesk/releases) 下载最新版本的 Windows 压缩包并解压到本机固定目录（例如 `D:\LumeDesk`）。
 2. 双击 **`QuickStart.bat`**（或直接运行 `LumeDesk.exe`）：
    - 首次启动会自动无损扫描当前电脑桌面的快捷方式并智能分类导入 `data\`（绝不删除原桌面文件）；
    - 自动识别当前主屏（横屏/竖屏均可）并启动。

@@ -148,7 +148,7 @@ namespace LumeDesk
             {
             }
 
-            // 4. Fallback OS-level NIC speed (only polled when Clash is disconnected to avoid UI-thread NIC stalls at 160Hz!)
+            // 4. Fallback OS-level NIC speed (only polled when Clash is disconnected to avoid UI-thread NIC stalls on high-refresh displays)
             if (includeNetworkFallback)
             try
             {

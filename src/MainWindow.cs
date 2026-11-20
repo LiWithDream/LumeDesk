@@ -774,7 +774,7 @@ namespace LumeDesk
             _searchOverlay.Children.Add(_searchContentHost);
             _rootGrid.Children.Add(_searchOverlay);
 
-            // Layer 4: Silky 160Hz GPU Floating Drag-and-Drop Overlay (replaces clunky OLE cursor!)
+            // Layer 4: High-refresh GPU Floating Drag-and-Drop Overlay (replaces clunky OLE cursor)
             _dragOverlayCanvas = new Canvas();
             _dragOverlayCanvas.IsHitTestVisible = false;
             _dragOverlayCanvas.Background = null;
@@ -1406,9 +1406,19 @@ namespace LumeDesk
 
         private void LaunchMusicApp()
         {
+            // 1. Prioritize the ACTUALLY PLAYING / ACTIVE SMTC media source!
+            MediaSnapshot snap = (_mediaService != null) ? _mediaService.GetSnapshot() : null;
+            if (snap != null && snap.HasSession &&
+                (!string.IsNullOrEmpty(snap.SourceApp) || !string.IsNullOrEmpty(snap.SourceAppId)))
+            {
+                TryActivateActiveMediaSource(snap.SourceApp, snap.SourceAppId, snap.Title);
+                return;
+            }
+
+            // 2. Idle fallback (no active session): launch a music player from workspace or known local install
             if (_workspace != null)
             {
-                string[] preferred = new string[] { "网易云音乐", "Spotify", "QQ音乐", "Apple Music", "YouTube Music", "PotPlayer" };
+                string[] preferred = new string[] { "Apple Music", "网易云音乐", "Spotify", "QQ音乐", "YouTube Music", "PotPlayer" };
                 for (int p = 0; p < preferred.Length; p++)
                 {
                     for (int i = 0; i < _workspace.AllItems.Count; i++)
@@ -1441,6 +1451,118 @@ namespace LumeDesk
                     catch { }
                 }
             }
+        }
+
+        private bool TryActivateActiveMediaSource(string sourceApp, string sourceAppId, string trackTitle)
+        {
+            string app = (sourceApp ?? "").Trim();
+            string appId = (sourceAppId ?? "").Trim();
+            string lowApp = app.ToLowerInvariant();
+            string lowId = appId.ToLowerInvariant();
+
+            // (a) Try activating the live running process window matching the active media source
+            List<string> candidateProcs = new List<string>();
+            if (lowId.EndsWith(".exe"))
+            {
+                try
+                {
+                    string stem = System.IO.Path.GetFileNameWithoutExtension(appId);
+                    if (!string.IsNullOrEmpty(stem)) candidateProcs.Add(stem);
+                }
+                catch { }
+            }
+            if (lowApp.IndexOf("apple") >= 0 || lowId.IndexOf("applemusic") >= 0 || lowId.IndexOf("itunes") >= 0)
+            {
+                candidateProcs.Add("AppleMusic");
+                candidateProcs.Add("iTunes");
+            }
+            else if (lowApp.IndexOf("网易云") >= 0 || lowId.IndexOf("cloudmusic") >= 0)
+            {
+                candidateProcs.Add("cloudmusic");
+            }
+            else if (lowApp.IndexOf("qq") >= 0 || lowId.IndexOf("qqmusic") >= 0)
+            {
+                candidateProcs.Add("QQMusic");
+            }
+            else if (lowApp.IndexOf("spotify") >= 0 || lowId.IndexOf("spotify") >= 0)
+            {
+                candidateProcs.Add("Spotify");
+            }
+            else if (lowApp.IndexOf("酷狗") >= 0 || lowId.IndexOf("kugou") >= 0)
+            {
+                candidateProcs.Add("KuGou");
+            }
+            else if (lowApp.IndexOf("酷我") >= 0 || lowId.IndexOf("kwmusic") >= 0)
+            {
+                candidateProcs.Add("kwmusic");
+            }
+            else if (lowApp.IndexOf("汽水") >= 0 || lowId.IndexOf("soda") >= 0)
+            {
+                candidateProcs.Add("SodaMusic");
+            }
+            else if (lowApp.IndexOf("potplayer") >= 0 || lowId.IndexOf("potplayer") >= 0)
+            {
+                candidateProcs.Add("PotPlayerMini64");
+                candidateProcs.Add("PotPlayerMini");
+            }
+            else if (lowApp.IndexOf("foobar") >= 0 || lowId.IndexOf("foobar") >= 0)
+            {
+                candidateProcs.Add("foobar2000");
+            }
+            else if (lowApp.IndexOf("vlc") >= 0 || lowId.IndexOf("vlc") >= 0)
+            {
+                candidateProcs.Add("vlc");
+            }
+            else if (lowApp.IndexOf("chrome") >= 0 || lowId.IndexOf("chrome") >= 0)
+            {
+                candidateProcs.Add("chrome");
+            }
+            else if (lowApp.IndexOf("edge") >= 0 || lowId.IndexOf("msedge") >= 0)
+            {
+                candidateProcs.Add("msedge");
+            }
+            else if (lowApp.IndexOf("firefox") >= 0 || lowId.IndexOf("firefox") >= 0)
+            {
+                candidateProcs.Add("firefox");
+            }
+
+            string titleHint = !string.IsNullOrEmpty(trackTitle) ? trackTitle : app;
+            for (int i = 0; i < candidateProcs.Count; i++)
+            {
+                if (WindowActivator.TryActivateProcessByName(candidateProcs[i], titleHint)) return true;
+                if (!string.IsNullOrEmpty(app) && !app.Equals(titleHint, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (WindowActivator.TryActivateProcessByName(candidateProcs[i], app)) return true;
+                }
+            }
+
+            // (b) Windows Store / MSIX AUMID (e.g. AppleInc.AppleMusicWin_nzyj5cx40ttqa!App):
+            // Explorer's shell:AppsFolder natively restores & brings the running UWP/WinUI3 app to foreground!
+            if (appId.IndexOf('!') > 0)
+            {
+                try
+                {
+                    Process.Start("explorer.exe", "shell:AppsFolder\\" + appId);
+                    return true;
+                }
+                catch { }
+            }
+
+            // (c) Match ONLY the active player in workspace shortcuts (never launch an unrelated player!)
+            if (_workspace != null && !string.IsNullOrEmpty(app))
+            {
+                for (int i = 0; i < _workspace.AllItems.Count; i++)
+                {
+                    string disp = _workspace.AllItems[i].DisplayName ?? "";
+                    if (disp.IndexOf(app, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        FolderScanner.LaunchItem(_workspace.AllItems[i]);
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         public void OpenAddTodoDialog()
@@ -4041,7 +4163,7 @@ namespace LumeDesk
         }
 
         // =========================================================================
-        // SILKY 160Hz GPU FLOATING GHOST DRAG-AND-DROP ENGINE
+        // HIGH-REFRESH GPU FLOATING GHOST DRAG-AND-DROP ENGINE
         // Supports: Icon Reordering, Cross-Folder Move, Dock Pinning, & Folder Card Reorder!
         // =========================================================================
         private void StartAppPointerDrag(
@@ -4164,7 +4286,7 @@ namespace LumeDesk
         private void MountDragGhost(FrameworkElement ghost, Point startPos, double u)
         {
             _dragOverlayCanvas.Children.Clear();
-            // Cache ghost + DropShadowEffect once into a single HiDPI GPU quad so 160Hz dragging never re-runs blur shaders!
+            // Cache ghost + DropShadowEffect once into a single HiDPI GPU quad so dragging never re-runs blur shaders
             ghost.CacheMode = CreateHiDpiBitmapCache();
             ghost.RenderTransformOrigin = new Point(0.5, 0.5);
             ScaleTransform liftScale = new ScaleTransform(_isPreviewMode ? 1.04 : 0.92, _isPreviewMode ? 1.04 : 0.92);
@@ -4217,7 +4339,7 @@ namespace LumeDesk
                 _dragGhostTranslate.Y = pt.Y - _dragGhostHalfH;
             }
 
-            // Smooth 160Hz edge auto-scroll when dragging inside a scrollable folder modal
+            // Smooth frame-rate-independent edge auto-scroll when dragging inside a scrollable folder modal
             UpdateModalDragAutoScroll(pt, u);
 
             DragAppTarget nextAppTarget = null;
@@ -4268,7 +4390,7 @@ namespace LumeDesk
                 }
             }
 
-            // Diff hover state transitions so we NEVER restart 4 animations on every 160Hz mouse move!
+            // Diff hover state transitions so we NEVER restart 4 animations on every mouse move
             if (!ReferenceEquals(nextAppTarget, _hoveredAppTarget))
             {
                 if (_hoveredAppTarget != null)
@@ -4923,7 +5045,7 @@ namespace LumeDesk
             modalRoot.IsHitTestVisible = false;
             modalRoot.Opacity = 0;
             // NOTE: CacheMode is attached ONLY during open/close animations and cleared to null at rest
-            // so icon hovers, scrolling, and floating drags run at locked 160Hz with zero 4K VRAM re-rasterization!
+            // so icon hovers, scrolling, and floating drags run smoothly with zero HiDPI VRAM re-rasterization
 
             ScaleTransform st = new ScaleTransform(1.0, 1.0);
             TranslateTransform tt = new TranslateTransform(0, 0);
@@ -5554,7 +5676,7 @@ namespace LumeDesk
                 scaleXAnim.Completed += delegate
                 {
                     if (token != _modalAnimToken || !_modalOverlayActive) return;
-                    // Drop BitmapCache once landed so hovering, scrolling, and dragging run at locked 160Hz with zero VRAM churn!
+                    // Drop BitmapCache once landed so hovering, scrolling, and dragging run smoothly with zero VRAM churn
                     view.Root.CacheMode = null;
                     Focus();
                 };
@@ -6112,7 +6234,7 @@ namespace LumeDesk
                 return;
             }
 
-            // Enable HiDPI BitmapCache ONLY for the reveal animation, then drop to null for locked 160Hz typing & scrolling!
+            // Enable HiDPI BitmapCache ONLY for the reveal animation, then drop to null for crisp typing & scrolling
             if (_searchInputRoot != null) _searchInputRoot.CacheMode = CreateHiDpiBitmapCache();
             if (_searchResultsRoot != null) _searchResultsRoot.CacheMode = CreateHiDpiBitmapCache();
 

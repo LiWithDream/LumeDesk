@@ -18,7 +18,7 @@ LumeDesk 的收件箱小部件支持两种模式：
 1. 左侧菜单进入 **「Google Auth Platform（或 OAuth 权限请求页面）」→「品牌」**：
    - 应用名称：填 `LumeDesk`（任意名称）
    - 用户支持电子邮件：选你自己的 Gmail
-   - **应用首页 / 隐私权政策链接**（发布正式版必填）：可以填你的 GitHub 主页或仓库链接，例如 `https://github.com/LiWithDream/LumeDesk`
+   - **应用首页 / 隐私权政策链接**（发布正式版必填）：可以填你的个人主页或 GitHub 仓库链接，例如 `https://github.com/<你的用户名>/<仓库名>`
    - **已获授权的网域**：点击「添加网域」，填入对应域名（例如 `github.com`）
    - 开发者联系信息：填你自己的 Gmail，点 **「保存」**。
 2. 左侧菜单进入 **「受众群体」**：
@@ -50,6 +50,6 @@ LumeDesk 的收件箱小部件支持两种模式：
 ## 常见问题
 
 - **Q：一直转圈或提示连接超时？**
-  - A：请确认本机代理（如 Clash Verge）已正常开启；LumeDesk 会自动遵循 Windows 系统代理设置。
+  - A：如所在网络环境需要代理访问 Google，请确认系统代理已正常开启；LumeDesk 会自动遵循 Windows 系统代理设置。
 - **Q：安全吗？会删除或修改我的邮件吗？**
   - A：LumeDesk 仅申请最小权限 `https://www.googleapis.com/auth/gmail.readonly`（纯只读），无法发信、删信或修改邮件；Refresh Token 和 Client Secret 均通过当前 Windows 用户的 **DPAPI (`ProtectedData`)** 加密后写入本地 `config.json`，换机器或换系统账号无法解密。
