@@ -60,7 +60,12 @@ namespace LumeDesk
         private GlobalSystemMediaTransportControlsSessionManager _sessionMgr;
 
         private string _lastTrackKey = "";
+        private string _lastTrackSessionKey = "";
         private string _lastCoverTrackKey = "";
+        private ulong _lastCoverHash = 0;
+        private ulong _prevTrackCoverHash = 0;
+        private DateTime _trackChangedUtc = DateTime.MinValue;
+        private bool _coverSettled = false;
         private BitmapSource _cachedCover;
         private Dictionary<string, List<LyricLine>> _lyricsCache = new Dictionary<string, List<LyricLine>>(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _lyricsInFlight = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -435,7 +440,11 @@ namespace LumeDesk
                     _state.LyricStatus = "";
                     _cachedCover = null;
                     _lastTrackKey = "";
+                    _lastTrackSessionKey = "";
                     _lastCoverTrackKey = "";
+                    _lastCoverHash = 0;
+                    _prevTrackCoverHash = 0;
+                    _coverSettled = false;
                 }
                 return;
             }
@@ -504,15 +513,81 @@ namespace LumeDesk
             }
 
             string trackKey = title + "||" + artist;
-            bool trackChanged = !trackKey.Equals(_lastTrackKey, StringComparison.OrdinalIgnoreCase);
+            string trackSessionKey = trackKey + "||" + rawAppId;
+            bool trackChanged = !trackSessionKey.Equals(_lastTrackSessionKey, StringComparison.OrdinalIgnoreCase);
 
-            // Load cover artwork only when track changes or cover missing
-            BitmapSource newCover = null;
-            bool coverUpdated = false;
-            if ((trackChanged || !trackKey.Equals(_lastCoverTrackKey, StringComparison.OrdinalIgnoreCase)) && thumbRef != null)
+            if (trackChanged)
             {
-                newCover = LoadThumbnailBitmap(thumbRef);
-                coverUpdated = true;
+                _prevTrackCoverHash = _lastCoverHash;
+                _trackChangedUtc = DateTime.UtcNow;
+                _coverSettled = false;
+            }
+
+            double secsSinceTrackChange = (DateTime.UtcNow - _trackChangedUtc).TotalSeconds;
+            bool needCheckCover = trackChanged || !_coverSettled || (_cachedCover == null && secsSinceTrackChange < 30.0);
+
+            BitmapSource newCover = null;
+            ulong newCoverHash = 0;
+            bool applyNewCover = false;
+            bool clearStaleCover = false;
+
+            if (needCheckCover && thumbRef != null)
+            {
+                byte[] rawThumb = LoadThumbnailBytes(thumbRef);
+                if (rawThumb != null && rawThumb.Length >= 32)
+                {
+                    ulong h = ComputeBytesHash(rawThumb);
+                    if (_prevTrackCoverHash == 0 || h != _prevTrackCoverHash)
+                    {
+                        if (h != _lastCoverHash || _cachedCover == null)
+                        {
+                            BitmapSource decoded = DecodeCoverBitmap(rawThumb);
+                            if (decoded != null)
+                            {
+                                newCover = decoded;
+                                newCoverHash = h;
+                                applyNewCover = true;
+                                _coverSettled = true;
+                            }
+                        }
+                        else
+                        {
+                            _coverSettled = true;
+                        }
+                    }
+                    else
+                    {
+                        // Thumbnail bytes still match the PREVIOUS track (common browser/CDN delay after track switch).
+                        // Clear stale artwork immediately on switch; if still identical after 2.5s (same album), show it
+                        // while continuing to watch up to 12s for late-arriving distinct artwork.
+                        if (trackChanged)
+                        {
+                            clearStaleCover = true;
+                        }
+                        else if (_cachedCover == null && secsSinceTrackChange >= 2.5)
+                        {
+                            BitmapSource decoded = DecodeCoverBitmap(rawThumb);
+                            if (decoded != null)
+                            {
+                                newCover = decoded;
+                                newCoverHash = h;
+                                applyNewCover = true;
+                            }
+                        }
+                        if (secsSinceTrackChange >= 12.0)
+                        {
+                            _coverSettled = true;
+                        }
+                    }
+                }
+                else if (trackChanged)
+                {
+                    clearStaleCover = true;
+                }
+            }
+            else if (trackChanged)
+            {
+                clearStaleCover = true;
             }
 
             lock (_lock)
@@ -530,13 +605,19 @@ namespace LumeDesk
                 if (trackChanged)
                 {
                     _lastTrackKey = trackKey;
-                    if (!coverUpdated) _cachedCover = null;
+                    _lastTrackSessionKey = trackSessionKey;
                     _state.LyricStatus = "正在匹配歌词...";
                 }
-                if (coverUpdated)
+                if (applyNewCover)
                 {
                     _cachedCover = newCover;
+                    _lastCoverHash = newCoverHash;
                     _lastCoverTrackKey = trackKey;
+                }
+                else if (clearStaleCover)
+                {
+                    _cachedCover = null;
+                    _lastCoverTrackKey = "";
                 }
             }
 
@@ -616,8 +697,12 @@ namespace LumeDesk
                 if (trackChanged)
                 {
                     _lastTrackKey = trackKey;
+                    _lastTrackSessionKey = trackKey + "||cloudmusic.exe";
                     _cachedCover = null;
                     _lastCoverTrackKey = "";
+                    _lastCoverHash = 0;
+                    _prevTrackCoverHash = 0;
+                    _coverSettled = false;
                     _state.LyricStatus = "正在匹配歌词...";
                 }
             }
@@ -894,7 +979,7 @@ namespace LumeDesk
             }
         }
 
-        private BitmapSource LoadThumbnailBitmap(IRandomAccessStreamReference thumbRef)
+        private byte[] LoadThumbnailBytes(IRandomAccessStreamReference thumbRef)
         {
             try
             {
@@ -909,20 +994,49 @@ namespace LumeDesk
                         if (loaded < 32) return null;
                         byte[] bytes = new byte[loaded];
                         reader.ReadBytes(bytes);
-
-                        BitmapImage bi = new BitmapImage();
-                        using (MemoryStream imgMs = new MemoryStream(bytes))
-                        {
-                            bi.BeginInit();
-                            bi.CacheOption = BitmapCacheOption.OnLoad;
-                            bi.DecodePixelWidth = 240;
-                            bi.StreamSource = imgMs;
-                            bi.EndInit();
-                        }
-                        bi.Freeze();
-                        return bi;
+                        return bytes;
                     }
                 }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static ulong ComputeBytesHash(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length == 0) return 0;
+            unchecked
+            {
+                ulong hash = 14695981039346656037UL;
+                hash ^= (ulong)bytes.Length;
+                hash *= 1099511628211UL;
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    hash ^= bytes[i];
+                    hash *= 1099511628211UL;
+                }
+                return hash == 0 ? 1UL : hash;
+            }
+        }
+
+        private static BitmapSource DecodeCoverBitmap(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length < 32) return null;
+            try
+            {
+                BitmapImage bi = new BitmapImage();
+                using (MemoryStream imgMs = new MemoryStream(bytes))
+                {
+                    bi.BeginInit();
+                    bi.CacheOption = BitmapCacheOption.OnLoad;
+                    bi.DecodePixelWidth = 240;
+                    bi.StreamSource = imgMs;
+                    bi.EndInit();
+                }
+                bi.Freeze();
+                return bi;
             }
             catch
             {
