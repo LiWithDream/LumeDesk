@@ -1,0 +1,24 @@
+# Local machine config (contains DPAPI-encrypted mail credentials & personal layout/todos)
+config.json
+
+# Personal shortcuts, custom icons & trash inside data/ (keep folder placeholder only)
+data/*
+!data/.gitkeep
+
+# Build outputs
+dist/
+*.exe
+*.exe.config
+*.pdb
+
+# Local previews, logs & temporary files (keep docs/images showcase assets!)
+*.png
+*.jpg
+!docs/images/*.png
+!docs/images/*.jpg
+*.log
+*.tmp
+.vs/
+.vscode/
+Thumbs.db
+desktop.ini

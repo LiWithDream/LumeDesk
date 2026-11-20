@@ -1,0 +1,34 @@
+{
+  "DataRoot": "",
+  "TargetMonitor": "auto",
+  "LayoutMode": "auto",
+  "Columns": 2,
+  "Rows": 3,
+  "CardTintOpacity": 0.62,
+  "BlurRadius": 18,
+  "ShowTopClock": true,
+  "ShowWidgets": true,
+  "EnabledWidgets": [
+    "mail",
+    "clash",
+    "music",
+    "sys_todo"
+  ],
+  "MailProvider": "oauth",
+  "MailImapHost": "imap.gmail.com",
+  "MailImapPort": 993,
+  "MailEmail": "",
+  "MailPasswordDpapi": "",
+  "GmailClientId": "",
+  "GmailClientSecretDpapi": "",
+  "GmailRefreshTokenDpapi": "",
+  "TodoItems": [],
+  "ForceMiniGridSlot": true,
+  "AutoNineGridThreshold": 7,
+  "FolderOrder": [],
+  "ItemOrder": {},
+  "IconBgOverrides": {
+    "Obsidian": "dark"
+  },
+  "FolderGridModes": {}
+}
